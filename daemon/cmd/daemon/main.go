@@ -72,9 +72,16 @@ func main() {
 
 func RunInstallerUI() {
 
+	// ── REGISTERED SECURITY TOOLS ───────────────────────────────────────
+	// To add a new tool:
+	//   1. Create a file in internal/installers/ implementing the SecurityTools interface
+	//      (Name, Description, Install, Configure, Start).
+	//   2. Append an instance below — it will appear in the TUI automatically.
 	tools := []installers.SecurityTools{
 		&installers.FalcoTool{},
 		&installers.SuricataTool{},
+		// &installers.WazuhTool{},  // uncomment once internal/installers/wazuh.go is implemented
+		// &installers.ZeekTool{},   // uncomment once internal/installers/zeek.go is implemented
 	}
 
 	p := tea.NewProgram(ui.InitialModel(tools))
