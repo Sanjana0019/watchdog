@@ -32,8 +32,7 @@ interface HeroProps {
 
 export default function Hero({
   title = "Give your big idea the design it deserves",
-  description =
-    "Professionally designed blocks and templates built with React, Shadcn/ui and Tailwind that will help your product stand out.",
+  description = "Professionally designed blocks and templates built with React, Shadcn/ui and Tailwind that will help your product stand out.",
   mockup = (
     <Screenshot
       srcLight="/logo.png"
@@ -106,7 +105,10 @@ export default function Hero({
           )}
           {mockup !== false && (
             <div className="relative w-full pt-12">
-              <MockupFrame className="animate-appear opacity-0 delay-700" size="small">
+              <MockupFrame
+                className="animate-appear opacity-0 delay-700"
+                size="small"
+              >
                 <Mockup
                   type="responsive"
                   className="w-full rounded-xl border-0 bg-background/90"
