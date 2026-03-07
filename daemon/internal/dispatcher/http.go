@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gourish-mokashi/watchdog/daemon/pkg/models"
@@ -57,13 +60,12 @@ func SendAlerts(alerts models.SecEvent, backendURL string) error {
 	return nil
 }
 
-
 func SendRule(toolname string, markdownContents string, backendBaseURL string) error {
 	payload := RulePayload{Contents: markdownContents}
 	jsonData, _ := json.Marshal(payload)
 
 	targetURL := fmt.Sprintf("%s/generate/rules?toolname=%s", backendBaseURL, toolname)
-	
+
 	req, _ := http.NewRequest("POST", targetURL, bytes.NewBuffer(jsonData))
 	req.Header.Set("Content-Type", "application/json")
 
@@ -78,4 +80,31 @@ func SendRule(toolname string, markdownContents string, backendBaseURL string) e
 		return fmt.Errorf("backend rejected rule with status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+func GenerateSummary(projectPath string, backendBaseURL string) (string, error) {
+	targetURL := fmt.Sprintf("%s/generate/summary?path=%s", backendBaseURL, url.QueryEscape(projectPath))
+
+	req, err := http.NewRequest("GET", targetURL, nil)
+	if err != nil {
+		return "", err
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("backend rejected summary request with status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	return strings.TrimSpace(string(body)), nil
 }

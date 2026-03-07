@@ -10,9 +10,11 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/gourish-mokashi/watchdog/daemon/internal/dispatcher"
 	"github.com/gourish-mokashi/watchdog/daemon/internal/installers"
 )
 
@@ -231,6 +233,12 @@ var defaultKeys = keyMap{
 const (
 	stateSelecting = iota
 	stateInstalling
+	stateProjectPath
+	stateAskAnalyze
+	stateAskWriteRules
+	stateGeneratingSummary
+	stateAskRestart
+	stateRestarting
 	stateDone
 )
 
@@ -246,6 +254,15 @@ type installLogMsg struct {
 
 // installDoneMsg is sent when the entire installation sequence finishes.
 type installDoneMsg struct {
+	err error
+}
+
+type summaryDoneMsg struct {
+	text string
+	err  error
+}
+
+type restartDoneMsg struct {
 	err error
 }
 
@@ -275,6 +292,13 @@ type model struct {
 	completedSteps int
 	hadError       bool
 	installEvents  <-chan tea.Msg
+	selectedTools  []installers.SecurityTools
+	backendURL     string
+	projectPath    string
+	runAnalysis    bool
+	writeRules     bool
+	yesSelected    bool
+	textInput      textinput.Model
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -301,7 +325,7 @@ type model struct {
 //     &installers.MyTool{},          // ← add your new tool here
 //     }
 //     That's it — the TUI picks it up automatically.
-func InitialModel(availableTools []installers.SecurityTools) model {
+func InitialModel(availableTools []installers.SecurityTools, backendURL string) model {
 	// Spinner — use the MiniDot style for a cleaner look
 	sp := spinner.New()
 	sp.Spinner = spinner.MiniDot
@@ -328,15 +352,25 @@ func InitialModel(availableTools []installers.SecurityTools) model {
 	h.Styles.ShortDesc = lipgloss.NewStyle().Foreground(colorDim)
 	h.Styles.ShortSeparator = lipgloss.NewStyle().Foreground(colorDimmer)
 
+	input := textinput.New()
+	input.Placeholder = "/path/to/project"
+	input.Prompt = "> "
+	input.Focus()
+	input.CharLimit = 512
+	input.Width = 64
+
 	return model{
-		tools:    availableTools,
-		selected: make(map[int]struct{}),
-		state:    stateSelecting,
-		spinner:  sp,
-		progress: prog,
-		viewport: vp,
-		help:     h,
-		keys:     defaultKeys,
+		tools:       availableTools,
+		selected:    make(map[int]struct{}),
+		state:       stateSelecting,
+		spinner:     sp,
+		progress:    prog,
+		viewport:    vp,
+		help:        h,
+		keys:        defaultKeys,
+		backendURL:  backendURL,
+		yesSelected: true,
+		textInput:   input,
 	}
 }
 
@@ -375,14 +409,43 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.hadError = true
 			m.logs = append(m.logs, fmtLogError(msg.err.Error()))
+			m.state = stateDone
 		} else {
 			m.logs = append(m.logs, fmtLogSuccess("All modules deployed and active"))
+			m.state = stateProjectPath
+			m.textInput.SetValue("")
+			m.textInput.Focus()
 		}
 		m.viewport.SetContent(strings.Join(m.logs, "\n"))
 		m.viewport.GotoBottom()
 		m.installEvents = nil
-		m.state = stateDone
 		return m, nil
+
+	case summaryDoneMsg:
+		if msg.err != nil {
+			m.logs = append(m.logs, fmtLogError(msg.err.Error()))
+		} else {
+			if msg.text != "" {
+				m.logs = append(m.logs, fmtLogInfo("Backend summary generated successfully"))
+				m.logs = append(m.logs, fmtLogCommand(truncateLine(msg.text, 140)))
+			}
+			m.logs = append(m.logs, fmtLogInfo("Falco rules will be written to /etc/falco/rules.d/watchdog-rules.yaml"))
+			m.logs = append(m.logs, fmtLogInfo("Falco config will be written to /etc/falco/config.d/watchdog.yaml"))
+		}
+		m.viewport.SetContent(strings.Join(m.logs, "\n"))
+		m.viewport.GotoBottom()
+		m.yesSelected = true
+		m.state = stateAskRestart
+
+	case restartDoneMsg:
+		if msg.err != nil {
+			m.logs = append(m.logs, fmtLogError(msg.err.Error()))
+		} else {
+			m.logs = append(m.logs, fmtLogSuccess("Selected services restarted"))
+		}
+		m.viewport.SetContent(strings.Join(m.logs, "\n"))
+		m.viewport.GotoBottom()
+		m.state = stateDone
 
 	// ── Spinner / progress animation ────────────────────────────────
 	case spinner.TickMsg:
@@ -400,6 +463,92 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
+
+		case m.state == stateProjectPath:
+			if msg.Type == tea.KeyEnter {
+				path := strings.TrimSpace(m.textInput.Value())
+				if path == "" {
+					m.logs = append(m.logs, fmtLogError("Project path cannot be empty"))
+					m.viewport.SetContent(strings.Join(m.logs, "\n"))
+					m.viewport.GotoBottom()
+					return m, nil
+				}
+
+				m.projectPath = path
+				m.logs = append(m.logs, fmtLogInfo("Project path set to "+path))
+				m.viewport.SetContent(strings.Join(m.logs, "\n"))
+				m.viewport.GotoBottom()
+				m.yesSelected = true
+				m.state = stateAskAnalyze
+				return m, nil
+			}
+
+			var cmd tea.Cmd
+			m.textInput, cmd = m.textInput.Update(msg)
+			return m, cmd
+
+		case m.state == stateAskAnalyze:
+			if toggled, handled := handleYesNoInput(msg, m.yesSelected); handled {
+				m.yesSelected = toggled
+				return m, nil
+			}
+			if msg.Type == tea.KeyEnter {
+				m.runAnalysis = m.yesSelected
+				if m.runAnalysis {
+					m.logs = append(m.logs, fmtLogInfo("Project analysis enabled"))
+				} else {
+					m.logs = append(m.logs, fmtLogInfo("Project analysis skipped"))
+				}
+				m.viewport.SetContent(strings.Join(m.logs, "\n"))
+				m.viewport.GotoBottom()
+				m.yesSelected = true
+				m.state = stateAskWriteRules
+				return m, nil
+			}
+
+		case m.state == stateAskWriteRules:
+			if toggled, handled := handleYesNoInput(msg, m.yesSelected); handled {
+				m.yesSelected = toggled
+				return m, nil
+			}
+			if msg.Type == tea.KeyEnter {
+				m.writeRules = m.yesSelected
+				if !m.writeRules {
+					m.logs = append(m.logs, fmtLogInfo("Rule generation skipped"))
+					m.viewport.SetContent(strings.Join(m.logs, "\n"))
+					m.viewport.GotoBottom()
+					m.yesSelected = true
+					m.state = stateAskRestart
+					return m, nil
+				}
+
+				m.logs = append(m.logs, fmtLogInfo("Requesting project summary from backend..."))
+				m.viewport.SetContent(strings.Join(m.logs, "\n"))
+				m.viewport.GotoBottom()
+				m.state = stateGeneratingSummary
+				return m, generateSummaryCmd(m.projectPath, m.backendURL)
+			}
+
+		case m.state == stateAskRestart:
+			if toggled, handled := handleYesNoInput(msg, m.yesSelected); handled {
+				m.yesSelected = toggled
+				return m, nil
+			}
+			if msg.Type == tea.KeyEnter {
+				if !m.yesSelected {
+					m.logs = append(m.logs, fmtLogInfo("Service restart skipped"))
+					m.viewport.SetContent(strings.Join(m.logs, "\n"))
+					m.viewport.GotoBottom()
+					m.state = stateDone
+					return m, nil
+				}
+
+				m.logs = append(m.logs, fmtLogInfo("Restarting installed services..."))
+				m.viewport.SetContent(strings.Join(m.logs, "\n"))
+				m.viewport.GotoBottom()
+				m.state = stateRestarting
+				return m, restartServicesCmd(m.selectedTools)
+			}
 
 		case key.Matches(msg, m.keys.Up):
 			if m.state == stateSelecting && m.cursor > 0 {
@@ -429,6 +578,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					selectedTools = append(selectedTools, m.tools[i])
 				}
 
+				m.selectedTools = selectedTools
 				m.totalSteps = len(selectedTools) * 3
 				m.completedSteps = 0
 
@@ -447,8 +597,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Keep spinner ticking during installation
-	if m.state == stateInstalling {
+	// Keep spinner ticking during long-running states
+	if m.state == stateInstalling || m.state == stateGeneratingSummary || m.state == stateRestarting {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		if cmd != nil {
@@ -465,6 +615,18 @@ func (m model) View() string {
 		return m.viewSelection()
 	case stateInstalling:
 		return m.viewInstalling()
+	case stateProjectPath:
+		return m.viewProjectPath()
+	case stateAskAnalyze:
+		return m.viewYesNoPrompt("PROJECT ANALYSIS", "Do you want to run an agent to analyze the project so it can write better rules?")
+	case stateAskWriteRules:
+		return m.viewYesNoPrompt("RULE GENERATION", "Do you want the agent to write rules for the installed security tools?")
+	case stateGeneratingSummary:
+		return m.viewWorking("Generating project summary from backend...")
+	case stateAskRestart:
+		return m.viewYesNoPrompt("RESTART SERVICES", "Do you want to restart the installed services?")
+	case stateRestarting:
+		return m.viewWorking("Restarting installed services...")
 	case stateDone:
 		return m.viewDone()
 	default:
@@ -567,6 +729,50 @@ func (m model) viewInstalling() string {
 	return outerBoxStyle.Render(b.String())
 }
 
+func (m model) viewProjectPath() string {
+	var b strings.Builder
+
+	b.WriteString(banner())
+	b.WriteString("\n")
+	b.WriteString(titleBarStyle.Render("  PROJECT PATH  "))
+	b.WriteString("\n\n")
+	b.WriteString("  Enter your project path.\n\n")
+	b.WriteString("  " + m.textInput.View() + "\n\n")
+	b.WriteString(m.viewport.View())
+	b.WriteString("\n")
+
+	return outerBoxStyle.Render(b.String())
+}
+
+func (m model) viewYesNoPrompt(title, question string) string {
+	var b strings.Builder
+
+	b.WriteString(banner())
+	b.WriteString("\n")
+	b.WriteString(titleBarStyle.Render("  " + title + "  "))
+	b.WriteString("\n\n")
+	b.WriteString("  " + question + "\n\n")
+	b.WriteString("  " + renderYesNoChoice(m.yesSelected) + "\n\n")
+	b.WriteString(m.viewport.View())
+	b.WriteString("\n")
+
+	return outerBoxStyle.Render(b.String())
+}
+
+func (m model) viewWorking(message string) string {
+	var b strings.Builder
+
+	b.WriteString(banner())
+	b.WriteString("\n")
+	b.WriteString(titleBarStyle.Render("  POST INSTALL  "))
+	b.WriteString("\n\n")
+	b.WriteString(fmt.Sprintf("  %s  %s\n\n", m.spinner.View(), message))
+	b.WriteString(m.viewport.View())
+	b.WriteString("\n")
+
+	return outerBoxStyle.Render(b.String())
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // View: Done
 // ─────────────────────────────────────────────────────────────────────────────
@@ -636,6 +842,28 @@ func fmtLogCommand(msg string) string {
 	return fmt.Sprintf("%s      %s", timestamp(), logCommandStyle.Render(msg))
 }
 
+func handleYesNoInput(msg tea.KeyMsg, current bool) (bool, bool) {
+	switch msg.String() {
+	case "left", "h", "y", "Y":
+		return true, true
+	case "right", "l", "n", "N":
+		return false, true
+	default:
+		return current, false
+	}
+}
+
+func renderYesNoChoice(yesSelected bool) string {
+	selected := lipgloss.NewStyle().Foreground(colorTertiary).Background(colorSuccess).Bold(true).Padding(0, 1)
+	unselected := lipgloss.NewStyle().Foreground(colorDim)
+
+	if yesSelected {
+		return selected.Render("YES") + "   " + unselected.Render("NO")
+	}
+
+	return unselected.Render("YES") + "   " + selected.Render("NO")
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Install command (runs in background, streams logs through Bubble Tea messages)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -682,6 +910,28 @@ func startInstall(tools []installers.SecurityTools, ch chan<- tea.Msg) {
 	}
 
 	ch <- installDoneMsg{err: nil}
+}
+
+func generateSummaryCmd(projectPath, backendURL string) tea.Cmd {
+	return func() tea.Msg {
+		if strings.TrimSpace(backendURL) == "" {
+			return summaryDoneMsg{err: fmt.Errorf("WATCHDOG_BACKEND_URL is not configured")}
+		}
+
+		text, err := dispatcher.GenerateSummary(projectPath, backendURL)
+		return summaryDoneMsg{text: text, err: err}
+	}
+}
+
+func restartServicesCmd(tools []installers.SecurityTools) tea.Cmd {
+	return func() tea.Msg {
+		for _, tool := range tools {
+			if err := tool.Start(); err != nil {
+				return restartDoneMsg{err: fmt.Errorf("[%s] restart failed: %v", tool.Name(), err)}
+			}
+		}
+		return restartDoneMsg{err: nil}
+	}
 }
 
 func waitForInstallMsg(ch <-chan tea.Msg) tea.Cmd {

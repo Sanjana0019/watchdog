@@ -16,6 +16,8 @@ import (
 	"github.com/gourish-mokashi/watchdog/daemon/watchers"
 )
 
+var backendURL = os.Getenv("WATCHDOG_BACKEND_URL")
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "init" {
 		RunInstallerUI()
@@ -71,6 +73,7 @@ func main() {
 }
 
 func RunInstallerUI() {
+	
 
 	// ── REGISTERED SECURITY TOOLS ───────────────────────────────────────
 	// To add a new tool:
@@ -83,7 +86,7 @@ func RunInstallerUI() {
 		&installers.WazuhTool{},
 	}
 
-	p := tea.NewProgram(ui.InitialModel(tools))
+	p := tea.NewProgram(ui.InitialModel(tools, backendURL))
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Fatal error in UI: %v\n", err)
 		os.Exit(1)
