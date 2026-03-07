@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,7 +21,10 @@ var backendURL = os.Getenv("WATCHDOG_BACKEND_URL")
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "init" {
-		go startAgentAPIServer()
+		if err := startAgentAPIServer(); err != nil {
+			fmt.Printf("Fatal error starting Agent API server: %v\n", err)
+			os.Exit(1)
+		}
 		RunInstallerUI()
 		return
 	}
@@ -54,7 +58,10 @@ func main() {
 		}
 	}()
 
-	go startAgentAPIServer()
+	if err := startAgentAPIServer(); err != nil {
+		fmt.Printf("Fatal error starting Agent API server: %v\n", err)
+		os.Exit(1)
+	}
 
 	<-signalChan
 
@@ -62,7 +69,7 @@ func main() {
 
 }
 
-func startAgentAPIServer() {
+func startAgentAPIServer() error {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /tools/read", reciever.HandleToolsRead)
@@ -71,10 +78,21 @@ func startAgentAPIServer() {
 	mux.HandleFunc("GET /tools/restart", reciever.HandleToolsRestart)
 	mux.HandleFunc("GET /tools/direnum", reciever.HandleDirEnum)
 
-	fmt.Println("\nAgent API listening on :8080...")
-	if err := http.ListenAndServe(":8080", mux); err != nil && err != http.ErrServerClosed {
-		fmt.Printf("Agent API server error: %v\n", err)
+	listener, err := net.Listen("tcp", ":8080")
+	if err != nil {
+		return err
 	}
+
+	server := &http.Server{Handler: mux}
+
+	fmt.Println("\nAgent API listening on :8080...")
+	go func() {
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+			fmt.Printf("Agent API server error: %v\n", err)
+		}
+	}()
+
+	return nil
 }
 
 func RunInstallerUI() {
