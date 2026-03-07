@@ -1,9 +1,9 @@
 package ui
 
 import (
-	"bytes"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -240,13 +240,13 @@ const (
 
 // installLogMsg carries a single formatted log line from the install goroutine.
 type installLogMsg struct {
-	line string
+	line    string
+	advance int
 }
 
 // installDoneMsg is sent when the entire installation sequence finishes.
 type installDoneMsg struct {
-	err  error
-	logs []string // all collected log lines
+	err error
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -274,6 +274,7 @@ type model struct {
 	totalSteps     int
 	completedSteps int
 	hadError       bool
+	installEvents  <-chan tea.Msg
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -353,8 +354,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	// ── Installation progress ────────────────────────────────────────
+	case installLogMsg:
+		if msg.line != "" {
+			m.logs = append(m.logs, msg.line)
+			m.viewport.SetContent(strings.Join(m.logs, "\n"))
+			m.viewport.GotoBottom()
+		}
+		if msg.advance > 0 {
+			m.completedSteps += msg.advance
+			if m.completedSteps > m.totalSteps {
+				m.completedSteps = m.totalSteps
+			}
+		}
+		if m.state == stateInstalling && m.installEvents != nil {
+			cmds = append(cmds, waitForInstallMsg(m.installEvents))
+		}
+
 	case installDoneMsg:
-		m.logs = msg.logs
 		m.completedSteps = m.totalSteps
 		if msg.err != nil {
 			m.hadError = true
@@ -364,6 +380,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.viewport.SetContent(strings.Join(m.logs, "\n"))
 		m.viewport.GotoBottom()
+		m.installEvents = nil
 		m.state = stateDone
 		return m, nil
 
@@ -417,11 +434,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				m.logs = []string{
 					fmtLogInfo("Initializing deployment pipeline..."),
-					fmtLogInfo("Running installer commands. Command output will be captured in the final report."),
+					fmtLogInfo("Streaming installer output..."),
 				}
 				m.viewport.SetContent(strings.Join(m.logs, "\n"))
+				m.viewport.GotoBottom()
 
-				cmds = append(cmds, startInstallCmd(selectedTools))
+				eventCh := make(chan tea.Msg, 256)
+				m.installEvents = eventCh
+				go startInstall(selectedTools, eventCh)
+				cmds = append(cmds, waitForInstallMsg(eventCh))
 			}
 		}
 	}
@@ -528,13 +549,19 @@ func (m model) viewInstalling() string {
 		progressLabelStyle.Render("Deploying modules..."),
 	))
 
-	logBox := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorDimmer).
-		Padding(0, 1).
-		Render(strings.Join(lastLines(m.logs, 6), "\n"))
+	pct := 0.0
+	if m.totalSteps > 0 {
+		pct = float64(m.completedSteps) / float64(m.totalSteps)
+	}
+	pctInt := int(pct * 100)
 
-	b.WriteString(logBox)
+	b.WriteString(fmt.Sprintf("  %s\n\n",
+		lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Render(fmt.Sprintf("%d%% complete", pctInt)),
+	))
+
+	b.WriteString("  " + m.progress.ViewAs(pct) + "\n\n")
+
+	b.WriteString(m.viewport.View())
 	b.WriteString("\n")
 
 	return outerBoxStyle.Render(b.String())
@@ -610,96 +637,111 @@ func fmtLogCommand(msg string) string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Install command (runs in background, collects formatted logs)
+// Install command (runs in background, streams logs through Bubble Tea messages)
 // ─────────────────────────────────────────────────────────────────────────────
 
-func startInstallCmd(tools []installers.SecurityTools) tea.Cmd {
+func startInstall(tools []installers.SecurityTools, ch chan<- tea.Msg) {
+	defer close(ch)
+
+	emitter := &installLogWriter{ch: ch}
+	installers.SetCommandOutput(emitter)
+	defer installers.SetCommandOutput(nil)
+
+	for _, tool := range tools {
+		name := tool.Name()
+
+		sendInstallLog(ch, fmtLogPhase(name, "install", "downloading packages..."), 0)
+		if err := tool.Install(); err != nil {
+			emitter.Flush()
+			ch <- installDoneMsg{err: fmt.Errorf("[%s] install failed: %v", name, err)}
+			return
+		}
+		emitter.Flush()
+		sendInstallLog(ch, fmtLogPhase(name, "install", "packages installed"), 1)
+
+		sendInstallLog(ch, fmtLogPhase(name, "config", "writing configuration..."), 0)
+		if err := tool.Configure(); err != nil {
+			emitter.Flush()
+			ch <- installDoneMsg{err: fmt.Errorf("[%s] configure failed: %v", name, err)}
+			return
+		}
+		emitter.Flush()
+		sendInstallLog(ch, fmtLogPhase(name, "config", "configuration applied"), 1)
+
+		sendInstallLog(ch, fmtLogPhase(name, "start", "enabling systemd service..."), 0)
+		if err := tool.Start(); err != nil {
+			emitter.Flush()
+			ch <- installDoneMsg{err: fmt.Errorf("[%s] start failed: %v", name, err)}
+			return
+		}
+		emitter.Flush()
+		sendInstallLog(ch, fmtLogPhase(name, "start", "service active ✓"), 1)
+		sendInstallLog(ch, fmtLogSuccess(fmt.Sprintf("%s - fully deployed", name)), 0)
+		sendInstallLog(ch, fmtLogCommand("------------------------------------------------------------"), 0)
+		sendInstallLog(ch, "", 0)
+	}
+
+	ch <- installDoneMsg{err: nil}
+}
+
+func waitForInstallMsg(ch <-chan tea.Msg) tea.Cmd {
 	return func() tea.Msg {
-		var logs []string
-		var output bytes.Buffer
+		msg, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return msg
+	}
+}
 
-		installers.SetCommandOutput(&output)
-		defer installers.SetCommandOutput(nil)
+func sendInstallLog(ch chan<- tea.Msg, line string, advance int) {
+	ch <- installLogMsg{line: line, advance: advance}
+}
 
-		for _, tool := range tools {
-			name := tool.Name()
+type installLogWriter struct {
+	ch      chan<- tea.Msg
+	mu      sync.Mutex
+	pending strings.Builder
+}
 
-			// Phase 1: Install
-			logs = append(logs, fmtLogPhase(name, "install", "downloading packages..."))
-			output.Reset()
-			if err := tool.Install(); err != nil {
-				logs = appendCommandOutput(logs, output.String())
-				return installDoneMsg{
-					err:  fmt.Errorf("[%s] install failed: %v", name, err),
-					logs: logs,
-				}
+func (w *installLogWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.pending.WriteString(strings.ReplaceAll(string(p), "\r", "\n"))
+	w.flushLocked(false)
+	return len(p), nil
+}
+
+func (w *installLogWriter) Flush() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.flushLocked(true)
+}
+
+func (w *installLogWriter) flushLocked(force bool) {
+	for {
+		current := w.pending.String()
+		idx := strings.IndexByte(current, '\n')
+		if idx == -1 {
+			if force && strings.TrimSpace(current) != "" {
+				sendInstallLog(w.ch, fmtLogCommand(truncateLine(strings.TrimSpace(current), 140)), 0)
+				w.pending.Reset()
 			}
-			logs = appendCommandOutput(logs, output.String())
-			logs = append(logs, fmtLogPhase(name, "install", "packages installed"))
-
-			// Phase 2: Configure
-			logs = append(logs, fmtLogPhase(name, "config", "writing configuration..."))
-			output.Reset()
-			if err := tool.Configure(); err != nil {
-				logs = appendCommandOutput(logs, output.String())
-				return installDoneMsg{
-					err:  fmt.Errorf("[%s] configure failed: %v", name, err),
-					logs: logs,
-				}
-			}
-			logs = appendCommandOutput(logs, output.String())
-			logs = append(logs, fmtLogPhase(name, "config", "configuration applied"))
-
-			// Phase 3: Start
-			logs = append(logs, fmtLogPhase(name, "start", "enabling systemd service..."))
-			output.Reset()
-			if err := tool.Start(); err != nil {
-				logs = appendCommandOutput(logs, output.String())
-				return installDoneMsg{
-					err:  fmt.Errorf("[%s] start failed: %v", name, err),
-					logs: logs,
-				}
-			}
-			logs = appendCommandOutput(logs, output.String())
-			logs = append(logs, fmtLogPhase(name, "start", "service active ✓"))
-			logs = append(logs, fmtLogSuccess(fmt.Sprintf("%s - fully deployed", name)))
-			marker := fmtLogCommand("------------------------------------------------------------")
-			logs = append(logs, marker, "")
+			return
 		}
 
-		return installDoneMsg{err: nil, logs: logs}
-	}
-}
+		line := strings.TrimSpace(current[:idx])
+		rest := current[idx+1:]
+		w.pending.Reset()
+		w.pending.WriteString(rest)
 
-func appendCommandOutput(logs []string, output string) []string {
-	lines := compactCommandOutput(output)
-	for _, line := range lines {
-		logs = append(logs, fmtLogCommand(line))
-	}
-	return logs
-}
-
-func compactCommandOutput(output string) []string {
-	raw := strings.Split(output, "\n")
-	lines := make([]string, 0, len(raw))
-
-	for _, line := range raw {
-		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		lines = append(lines, truncateLine(line, 120))
-	}
 
-	if len(lines) <= 12 {
-		return lines
+		sendInstallLog(w.ch, fmtLogCommand(truncateLine(line, 140)), 0)
 	}
-
-	compacted := make([]string, 0, 9)
-	compacted = append(compacted, lines[:4]...)
-	compacted = append(compacted, fmt.Sprintf("... %d more lines omitted ...", len(lines)-8))
-	compacted = append(compacted, lines[len(lines)-4:]...)
-	return compacted
 }
 
 func truncateLine(line string, limit int) string {
@@ -707,11 +749,4 @@ func truncateLine(line string, limit int) string {
 		return line
 	}
 	return line[:limit-3] + "..."
-}
-
-func lastLines(lines []string, count int) []string {
-	if len(lines) <= count {
-		return lines
-	}
-	return lines[len(lines)-count:]
 }
