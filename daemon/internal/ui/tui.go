@@ -531,6 +531,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 
+				if strings.TrimSpace(m.projectPath) == "" {
+					m.logs = append(m.logs, fmtLogInfo("Project path was skipped, so rule generation is deferred for now"))
+					m.viewport.SetContent(strings.Join(m.logs, "\n"))
+					m.viewport.GotoBottom()
+					m.yesSelected = true
+					m.state = stateAskRestart
+					return m, nil
+				}
+
 				m.logs = append(m.logs, fmtLogInfo("Requesting project summary from backend..."))
 				m.viewport.SetContent(strings.Join(m.logs, "\n"))
 				m.viewport.GotoBottom()

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -26,6 +27,11 @@ type RulePayload struct {
 }
 
 func SendAlerts(alerts models.SecEvent, backendURL string) error {
+	targetURL, err := backendEndpointURL(backendURL, "/events/new")
+
+	if err != nil {
+		return err
+	}
 
 	payload := BackendEventPayload{
 		SourceTool:  alerts.SourceTool,
@@ -40,7 +46,7 @@ func SendAlerts(alerts models.SecEvent, backendURL string) error {
 		return fmt.Errorf("failed to pack JSON: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", backendURL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", targetURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -64,7 +70,11 @@ func SendRule(toolname string, markdownContents string, backendBaseURL string) e
 	payload := RulePayload{Contents: markdownContents}
 	jsonData, _ := json.Marshal(payload)
 
-	targetURL := fmt.Sprintf("%s/generate/rules?toolname=%s", backendBaseURL, toolname)
+	targetURL, err := backendEndpointURL(backendBaseURL, "/generate/rules")
+	if err != nil {
+		return err
+	}
+	targetURL = fmt.Sprintf("%s?toolname=%s", targetURL, url.QueryEscape(toolname))
 
 	req, _ := http.NewRequest("POST", targetURL, bytes.NewBuffer(jsonData))
 	req.Header.Set("Content-Type", "application/json")
@@ -83,7 +93,11 @@ func SendRule(toolname string, markdownContents string, backendBaseURL string) e
 }
 
 func GenerateSummary(projectPath string, backendBaseURL string) (string, error) {
-	targetURL := fmt.Sprintf("%s/generate/summary?path=%s", backendBaseURL, url.QueryEscape(projectPath))
+	targetURL, err := backendEndpointURL(backendBaseURL, "/generate/summary")
+	if err != nil {
+		return "", err
+	}
+	targetURL = fmt.Sprintf("%s?path=%s", targetURL, url.QueryEscape(projectPath))
 
 	req, err := http.NewRequest("GET", targetURL, nil)
 	if err != nil {
@@ -107,4 +121,19 @@ func GenerateSummary(projectPath string, backendBaseURL string) (string, error) 
 	}
 
 	return strings.TrimSpace(string(body)), nil
+}
+
+func backendEndpointURL(baseURL, endpointPath string) (string, error) {
+	trimmed := strings.TrimSpace(baseURL)
+	if trimmed == "" {
+		return "", fmt.Errorf("WATCHDOG_BACKEND_URL is not configured")
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("invalid WATCHDOG_BACKEND_URL: %w", err)
+	}
+
+	parsed.Path = path.Join(parsed.Path, endpointPath)
+	return parsed.String(), nil
 }
