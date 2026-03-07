@@ -10,8 +10,26 @@ import (
 	"github.com/gourish-mokashi/watchdog/daemon/pkg/models"
 )
 
+type BackendEventPayload struct {
+	SourceTool  string      `json:"sourceTool"`
+	Timestamp   time.Time   `json:"timestamp"`
+	Priority	string      `json:"priority"`
+	Description string      `json:"description"`
+	RawPayload  json.RawMessage `json:"rawPayload"`
+}
+
+
 func SendAlerts(alerts models.SecEvent, backendURL string) error {
-	jsonData, err := json.Marshal(alerts)
+	
+	payload := BackendEventPayload{
+		SourceTool: alerts.SourceTool,
+		Timestamp: time.Now(),
+		Priority: alerts.Priority,
+		Description: alerts.Description,
+		RawPayload: alerts.RawPayload,
+	}
+
+	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to pack JSON: %w", err)
 	}
@@ -20,22 +38,18 @@ func SendAlerts(alerts models.SecEvent, backendURL string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
-
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-	}
+	client := &http.Client{ Timeout: 10 * time.Second }
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 300 {
-		return fmt.Errorf("backend responded with status: %s", resp.Status)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("backend rejected payload with status: %d", resp.StatusCode)
 	}
 
 	return nil
-
 }
