@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -14,75 +15,163 @@ import (
 	"github.com/gourish-mokashi/watchdog/daemon/internal/installers"
 )
 
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Color palette — blue-centric theme inspired by OpenClaw
+// ─────────────────────────────────────────────────────────────────────────────
+
+const (
+	colorPrimary    = lipgloss.Color("#5EAEFF") // soft blue — accents
+	colorSecondary  = lipgloss.Color("#3A7BD5") // mid-blue — borders, highlights
+	colorTertiary   = lipgloss.Color("#1B3A5C") // dark navy — backgrounds
+	colorAccent     = lipgloss.Color("#89CFF0") // light sky blue — active items
+	colorDim        = lipgloss.Color("#4A5568") // muted grey — inactive text
+	colorDimmer     = lipgloss.Color("#2D3748") // darker grey — decorative lines
+	colorText       = lipgloss.Color("#CBD5E1") // off-white — body text
+	colorSuccess    = lipgloss.Color("#5EEAD4") // teal-green — success
+	colorError      = lipgloss.Color("#F87171") // soft red — errors
+	colorWarn       = lipgloss.Color("#FBBF24") // amber — warnings / phase labels
+	colorWhiteBold  = lipgloss.Color("#F1F5F9") // near-white for titles
+	colorLogPhase   = lipgloss.Color("#818CF8") // indigo — phase badges
+	colorLogToolBg  = lipgloss.Color("#1E293B") // dark slate — tool-name bg
+)
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Styles (lipgloss)
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 var (
-	titleStyle = lipgloss.NewStyle().
+	// ── Branding ────────────────────────────────────────────────────
+	logoStyle = lipgloss.NewStyle().
+			Foreground(colorPrimary).
+			Bold(true)
+
+	titleBarStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#00FF00")).
-			Background(lipgloss.Color("#1a1a2e")).
-			Padding(0, 2).
-			MarginBottom(1)
+			Foreground(colorWhiteBold).
+			Background(colorTertiary).
+			Padding(0, 2)
 
 	subtitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#888888")).
-			Italic(true).
-			MarginBottom(1)
+			Foreground(colorDim).
+			Italic(true)
 
+	// ── Selection list ──────────────────────────────────────────────
 	itemStyle = lipgloss.NewStyle().
-			PaddingLeft(2)
+			PaddingLeft(4).
+			Foreground(colorText)
 
 	selectedItemStyle = lipgloss.NewStyle().
-				PaddingLeft(2).
-				Foreground(lipgloss.Color("#00FF00")).
+				PaddingLeft(4).
+				Foreground(colorAccent).
 				Bold(true)
 
+	cursorStyle = lipgloss.NewStyle().
+			Foreground(colorPrimary).
+			Bold(true)
+
 	checkedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00FF00")).
+			Foreground(colorPrimary).
 			Bold(true)
 
 	uncheckedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#555555"))
+			Foreground(colorDimmer)
 
 	toolNameStyle = lipgloss.NewStyle().
+			Foreground(colorWhiteBold).
 			Bold(true)
 
 	toolDescStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#888888"))
+			Foreground(colorDim)
 
-	logSuccessStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00FF00"))
+	selectedCountStyle = lipgloss.NewStyle().
+				Foreground(colorAccent).
+				PaddingLeft(4)
 
-	logErrorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF0000")).
+	dividerStyle = lipgloss.NewStyle().
+			Foreground(colorDimmer)
+
+	// ── Logs ────────────────────────────────────────────────────────
+	logTimestampStyle = lipgloss.NewStyle().
+				Foreground(colorDim)
+
+	logPhaseBadgeStyle = lipgloss.NewStyle().
+				Foreground(colorTertiary).
+				Background(colorLogPhase).
+				Bold(true).
+				Padding(0, 1)
+
+	logToolStyle = lipgloss.NewStyle().
+			Foreground(colorAccent).
+			Background(colorLogToolBg).
+			Bold(true).
+			Padding(0, 1)
+
+	logMsgStyle = lipgloss.NewStyle().
+			Foreground(colorText)
+
+	logSuccessIcon = lipgloss.NewStyle().
+			Foreground(colorSuccess).
 			Bold(true)
 
-	logInfoStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#5599FF"))
+	logErrorIcon = lipgloss.NewStyle().
+			Foreground(colorError).
+			Bold(true)
 
-	borderBoxStyle = lipgloss.NewStyle().
+	logInfoIcon = lipgloss.NewStyle().
+			Foreground(colorPrimary).
+			Bold(true)
+
+	// ── Progress ────────────────────────────────────────────────────
+	progressLabelStyle = lipgloss.NewStyle().
+				Foreground(colorText)
+
+	// ── Containers ──────────────────────────────────────────────────
+	outerBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#00FF00")).
-			Padding(1, 2)
+			BorderForeground(colorSecondary).
+			Padding(1, 3).
+			MarginTop(1)
 
 	doneBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.DoubleBorder()).
-			BorderForeground(lipgloss.Color("#00FF00")).
-			Padding(1, 2).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorSuccess).
+			Padding(1, 3).
 			MarginTop(1)
 
 	errorBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.DoubleBorder()).
-			BorderForeground(lipgloss.Color("#FF0000")).
-			Padding(1, 2).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorError).
+			Padding(1, 3).
 			MarginTop(1)
+
+	doneHeaderSuccess = lipgloss.NewStyle().
+				Foreground(colorSuccess).
+				Bold(true)
+
+	doneHeaderError = lipgloss.NewStyle().
+			Foreground(colorError).
+			Bold(true)
+
+	hintStyle = lipgloss.NewStyle().
+			Foreground(colorDim).
+			Italic(true)
 )
 
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// ASCII logo
+// ─────────────────────────────────────────────────────────────────────────────
+
+func banner() string {
+	art := `
+ █ █ █▀█ ▀█▀ █▀▀ █ █ █▀▄ █▀█ █▀▀
+ █▄█ █▀█  █  █   █▀█ █ █ █ █ █ █
+ ▀ ▀ ▀ ▀  ▀  ▀▀▀ ▀ ▀ ▀▀  ▀▀▀ ▀▀▀`
+	return logoStyle.Render(art)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Key bindings (bubbles/key)
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 type keyMap struct {
 	Up      key.Binding
@@ -119,7 +208,7 @@ var defaultKeys = keyMap{
 	),
 	Install: key.NewBinding(
 		key.WithKeys("enter"),
-		key.WithHelp("enter", "install"),
+		key.WithHelp("enter", "deploy"),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("ctrl+c", "q"),
@@ -127,9 +216,9 @@ var defaultKeys = keyMap{
 	),
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // UI States
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 const (
 	stateSelecting = iota
@@ -137,24 +226,24 @@ const (
 	stateDone
 )
 
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // Messages
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
-// installStepMsg is sent after each tool completes a phase (install/configure/start).
-type installStepMsg struct {
-	toolName string
-	phase    string // "install", "configure", "start"
+// installLogMsg carries a single formatted log line from the install goroutine.
+type installLogMsg struct {
+	line string
 }
 
 // installDoneMsg is sent when the entire installation sequence finishes.
 type installDoneMsg struct {
-	err error
+	err  error
+	logs []string // all collected log lines
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // Model
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 type model struct {
 	// Tool data
@@ -179,52 +268,56 @@ type model struct {
 	hadError       bool
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // Constructor
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 // InitialModel configures the starting state of the TUI.
 //
 // HOW TO ADD NEW TOOLS:
 // ─────────────────────
-// 1. Create a new file in internal/installers/ (e.g. mytool.go).
-// 2. Define a struct that implements the installers.SecurityTools interface:
-//      type MyTool struct{}
-//      func (m *MyTool) Name() string        { return "MyTool" }
-//      func (m *MyTool) Description() string  { return "What it does" }
-//      func (m *MyTool) Install() error       { /* apt/dnf install logic */ }
-//      func (m *MyTool) Configure() error     { /* write config files */ }
-//      func (m *MyTool) Start() error         { /* systemctl enable --now */ }
-// 3. Register it in cmd/daemon/main.go → RunInstallerUI() by appending to
-//    the `tools` slice:
-//      tools := []installers.SecurityTools{
-//          &installers.FalcoTool{},
-//          &installers.SuricataTool{},
-//          &installers.MyTool{},          // ← add your new tool here
-//      }
-//    That's it — the TUI picks it up automatically.
+//  1. Create a new file in internal/installers/ (e.g. mytool.go).
+//  2. Define a struct that implements the installers.SecurityTools interface:
+//     type MyTool struct{}
+//     func (m *MyTool) Name() string        { return "MyTool" }
+//     func (m *MyTool) Description() string  { return "What it does" }
+//     func (m *MyTool) Install() error       { /* apt/dnf install logic */ }
+//     func (m *MyTool) Configure() error     { /* write config files */ }
+//     func (m *MyTool) Start() error         { /* systemctl enable --now */ }
+//  3. Register it in cmd/daemon/main.go → RunInstallerUI() by appending to
+//     the `tools` slice:
+//     tools := []installers.SecurityTools{
+//     &installers.FalcoTool{},
+//     &installers.SuricataTool{},
+//     &installers.MyTool{},          // ← add your new tool here
+//     }
+//     That's it — the TUI picks it up automatically.
 func InitialModel(availableTools []installers.SecurityTools) model {
-	// Spinner
+	// Spinner — use the MiniDot style for a cleaner look
 	sp := spinner.New()
-	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
+	sp.Spinner = spinner.MiniDot
+	sp.Style = lipgloss.NewStyle().Foreground(colorPrimary)
 
-	// Progress bar
+	// Progress bar — blue gradient
 	prog := progress.New(
-		progress.WithDefaultGradient(),
-		progress.WithWidth(40),
+		progress.WithScaledGradient("#3A7BD5", "#89CFF0"),
+		progress.WithWidth(50),
+		progress.WithoutPercentage(),
 	)
 
-	// Viewport for install logs
-	vp := viewport.New(60, 10)
+	// Viewport for install logs — taller, wider
+	vp := viewport.New(64, 14)
 	vp.Style = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#444444")).
+		BorderForeground(colorDimmer).
 		Padding(0, 1)
 
-	// Help
+	// Help — style it to match our palette
 	h := help.New()
 	h.ShowAll = false
+	h.Styles.ShortKey = lipgloss.NewStyle().Foreground(colorPrimary).Bold(true)
+	h.Styles.ShortDesc = lipgloss.NewStyle().Foreground(colorDim)
+	h.Styles.ShortSeparator = lipgloss.NewStyle().Foreground(colorDimmer)
 
 	return model{
 		tools:    availableTools,
@@ -238,9 +331,9 @@ func InitialModel(availableTools []installers.SecurityTools) model {
 	}
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // Bubble Tea interface
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 func (m model) Init() tea.Cmd {
 	return m.spinner.Tick
@@ -251,28 +344,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 
-	// ── Installation progress ────────────────────────────────────────────
-	case installStepMsg:
-		m.completedSteps++
-		logLine := fmt.Sprintf("✓ [%s] %s complete", msg.toolName, msg.phase)
-		m.logs = append(m.logs, logLine)
-		m.viewport.SetContent(strings.Join(m.logs, "\n"))
-		m.viewport.GotoBottom()
-		return m, nil
-
+	// ── Installation progress ────────────────────────────────────────
 	case installDoneMsg:
+		m.logs = msg.logs
 		if msg.err != nil {
 			m.hadError = true
-			m.logs = append(m.logs, fmt.Sprintf("✗ ERROR: %v", msg.err))
+			m.logs = append(m.logs, fmtLogError(msg.err.Error()))
 		} else {
-			m.logs = append(m.logs, "✓ All modules deployed and running!")
+			m.logs = append(m.logs, fmtLogSuccess("All modules deployed and active"))
 		}
 		m.viewport.SetContent(strings.Join(m.logs, "\n"))
 		m.viewport.GotoBottom()
 		m.state = stateDone
 		return m, nil
 
-	// ── Spinner / progress animation ────────────────────────────────────
+	// ── Spinner / progress animation ────────────────────────────────
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -283,7 +369,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.progress = progressModel.(progress.Model)
 		cmds = append(cmds, cmd)
 
-	// ── Keyboard input ──────────────────────────────────────────────────
+	// ── Keyboard input ──────────────────────────────────────────────
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, m.keys.Quit):
@@ -317,11 +403,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					selectedTools = append(selectedTools, m.tools[i])
 				}
 
-				// 3 phases per tool: install, configure, start
 				m.totalSteps = len(selectedTools) * 3
 				m.completedSteps = 0
 
-				m.logs = append(m.logs, "▶ Starting installation sequence...")
+				m.logs = []string{fmtLogInfo("Initializing deployment pipeline...")}
 				m.viewport.SetContent(strings.Join(m.logs, "\n"))
 
 				cmds = append(cmds, startInstallCmd(selectedTools))
@@ -354,33 +439,40 @@ func (m model) View() string {
 	}
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // View: Selection
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 func (m model) viewSelection() string {
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render(" WATCHDOG INIT "))
+	// Banner
+	b.WriteString(banner())
 	b.WriteString("\n")
-	b.WriteString(subtitleStyle.Render("Select security modules to deploy"))
+	b.WriteString(titleBarStyle.Render("  INIT  "))
+	b.WriteString("  ")
+	b.WriteString(subtitleStyle.Render("select security modules to deploy"))
 	b.WriteString("\n\n")
 
+	// Divider
+	b.WriteString(dividerStyle.Render("  ─────────────────────────────────────────────") + "\n\n")
+
+	// Tool list
 	for i, tool := range m.tools {
-		cursor := "  "
+		cursor := "   "
 		if m.cursor == i {
-			cursor = "▸ "
+			cursor = cursorStyle.Render(" ▸ ")
 		}
 
 		checkbox := uncheckedStyle.Render("○")
 		if _, ok := m.selected[i]; ok {
-			checkbox = checkedStyle.Render("●")
+			checkbox = checkedStyle.Render("◉")
 		}
 
 		name := toolNameStyle.Render(tool.Name())
-		desc := toolDescStyle.Render(tool.Description())
+		desc := toolDescStyle.Render("— " + tool.Description())
 
-		row := fmt.Sprintf("%s%s %s  %s", cursor, checkbox, name, desc)
+		row := fmt.Sprintf("%s %s  %s  %s", cursor, checkbox, name, desc)
 
 		if m.cursor == i {
 			b.WriteString(selectedItemStyle.Render(row) + "\n")
@@ -389,71 +481,85 @@ func (m model) viewSelection() string {
 		}
 	}
 
+	// Selection count
+	b.WriteString("\n")
+	b.WriteString(dividerStyle.Render("  ─────────────────────────────────────────────") + "\n")
 	selectedCount := len(m.selected)
 	if selectedCount > 0 {
-		b.WriteString("\n")
-		b.WriteString(logInfoStyle.Render(fmt.Sprintf("  %d module(s) selected", selectedCount)))
+		b.WriteString(selectedCountStyle.Render(
+			fmt.Sprintf("  ▪ %d module(s) selected — press enter to deploy", selectedCount)))
+	} else {
+		b.WriteString(selectedCountStyle.Render("  ▪ no modules selected"))
 	}
-
 	b.WriteString("\n\n")
-	b.WriteString(m.help.View(m.keys))
 
-	return borderBoxStyle.Render(b.String())
+	// Help footer
+	b.WriteString("  " + m.help.View(m.keys))
+
+	return outerBoxStyle.Render(b.String())
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // View: Installing
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 func (m model) viewInstalling() string {
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render(" DEPLOYING MODULES "))
+	b.WriteString(banner())
+	b.WriteString("\n")
+	b.WriteString(titleBarStyle.Render("  DEPLOY  "))
 	b.WriteString("\n\n")
 
-	// Spinner + status
+	// Spinner + status line
 	pct := 0.0
 	if m.totalSteps > 0 {
 		pct = float64(m.completedSteps) / float64(m.totalSteps)
 	}
+	pctInt := int(pct * 100)
 
-	b.WriteString(fmt.Sprintf("  %s Installing... (%d/%d steps)\n\n",
-		m.spinner.View(), m.completedSteps, m.totalSteps))
+	b.WriteString(fmt.Sprintf("  %s  %s  %s\n\n",
+		m.spinner.View(),
+		progressLabelStyle.Render("Deploying modules..."),
+		lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Render(fmt.Sprintf("%d%%", pctInt)),
+	))
 
 	// Progress bar
 	b.WriteString("  " + m.progress.ViewAs(pct) + "\n\n")
 
 	// Log viewport
 	b.WriteString(m.viewport.View())
+	b.WriteString("\n")
 
-	return borderBoxStyle.Render(b.String())
+	return outerBoxStyle.Render(b.String())
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // View: Done
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 func (m model) viewDone() string {
 	var b strings.Builder
 
-	if m.hadError {
-		b.WriteString(logErrorStyle.Render("  INSTALLATION FAILED"))
-	} else {
-		b.WriteString(logSuccessStyle.Render("  INSTALLATION COMPLETE"))
-	}
+	b.WriteString(banner())
 	b.WriteString("\n\n")
 
-	for _, log := range m.logs {
-		if strings.HasPrefix(log, "✗") {
-			b.WriteString("  " + logErrorStyle.Render(log) + "\n")
-		} else if strings.HasPrefix(log, "✓") {
-			b.WriteString("  " + logSuccessStyle.Render(log) + "\n")
-		} else {
-			b.WriteString("  " + logInfoStyle.Render(log) + "\n")
-		}
+	if m.hadError {
+		b.WriteString(doneHeaderError.Render("  ✗  DEPLOYMENT FAILED"))
+	} else {
+		b.WriteString(doneHeaderSuccess.Render("  ✓  DEPLOYMENT COMPLETE"))
+	}
+	b.WriteString("\n")
+	b.WriteString(dividerStyle.Render("  ─────────────────────────────────────────────") + "\n\n")
+
+	// Render all collected logs
+	for _, line := range m.logs {
+		b.WriteString("  " + line + "\n")
 	}
 
-	b.WriteString("\n  Press q to exit.")
+	b.WriteString("\n")
+	b.WriteString(dividerStyle.Render("  ─────────────────────────────────────────────") + "\n")
+	b.WriteString(hintStyle.Render("  press q to exit"))
 
 	boxStyle := doneBoxStyle
 	if m.hadError {
@@ -462,30 +568,83 @@ func (m model) viewDone() string {
 	return boxStyle.Render(b.String())
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Install command (runs in background, reports progress via messages)
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Log formatting helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+func timestamp() string {
+	return logTimestampStyle.Render(time.Now().Format("15:04:05"))
+}
+
+func fmtLogPhase(tool, phase, detail string) string {
+	ts := timestamp()
+	badge := logPhaseBadgeStyle.Render(strings.ToUpper(phase))
+	name := logToolStyle.Render(tool)
+	msg := logMsgStyle.Render(detail)
+	return fmt.Sprintf("%s  %s  %s  %s", ts, badge, name, msg)
+}
+
+func fmtLogSuccess(msg string) string {
+	icon := logSuccessIcon.Render("✓")
+	return fmt.Sprintf("%s  %s  %s", timestamp(), icon, logSuccessIcon.Render(msg))
+}
+
+func fmtLogError(msg string) string {
+	icon := logErrorIcon.Render("✗")
+	return fmt.Sprintf("%s  %s  %s", timestamp(), icon, logErrorIcon.Render(msg))
+}
+
+func fmtLogInfo(msg string) string {
+	icon := logInfoIcon.Render("›")
+	return fmt.Sprintf("%s  %s  %s", timestamp(), icon, logMsgStyle.Render(msg))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Install command (runs in background, collects formatted logs)
+// ─────────────────────────────────────────────────────────────────────────────
 
 func startInstallCmd(tools []installers.SecurityTools) tea.Cmd {
 	return func() tea.Msg {
+		var logs []string
+
 		for _, tool := range tools {
+			name := tool.Name()
+
 			// Phase 1: Install
+			logs = append(logs, fmtLogPhase(name, "install", "downloading packages..."))
 			if err := tool.Install(); err != nil {
-				return installDoneMsg{err: fmt.Errorf("[%s] install failed: %v", tool.Name(), err)}
+				return installDoneMsg{
+					err:  fmt.Errorf("[%s] install failed: %v", name, err),
+					logs: logs,
+				}
 			}
-			// NOTE: In a real async pipeline you'd send installStepMsg per phase
-			// via p.Send(), but bubbletea Cmds return a single Msg.
+			logs = append(logs, fmtLogPhase(name, "install", "packages installed"))
 
 			// Phase 2: Configure
+			logs = append(logs, fmtLogPhase(name, "config", "writing configuration..."))
 			if err := tool.Configure(); err != nil {
-				return installDoneMsg{err: fmt.Errorf("[%s] configure failed: %v", tool.Name(), err)}
+				return installDoneMsg{
+					err:  fmt.Errorf("[%s] configure failed: %v", name, err),
+					logs: logs,
+				}
 			}
+			logs = append(logs, fmtLogPhase(name, "config", "configuration applied"))
 
 			// Phase 3: Start
+			logs = append(logs, fmtLogPhase(name, "start", "enabling systemd service..."))
 			if err := tool.Start(); err != nil {
-				return installDoneMsg{err: fmt.Errorf("[%s] start failed: %v", tool.Name(), err)}
+				return installDoneMsg{
+					err:  fmt.Errorf("[%s] start failed: %v", name, err),
+					logs: logs,
+				}
 			}
+			logs = append(logs, fmtLogPhase(name, "start", "service active ✓"))
+
+			// Summary line per tool
+			logs = append(logs, fmtLogSuccess(fmt.Sprintf("%s — fully deployed", name)))
+			logs = append(logs, "") // blank line separator between tools
 		}
-		return installDoneMsg{err: nil}
+
+		return installDoneMsg{err: nil, logs: logs}
 	}
 }
