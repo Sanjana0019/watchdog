@@ -25,6 +25,7 @@ export default function EventDetailPage() {
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [analysing, setAnalysing] = useState(false);
 
   const codeRef = useRef<HTMLElement>(null);
 
@@ -81,6 +82,15 @@ export default function EventDetailPage() {
   return (
     <div className="min-h-screen bg-zinc-50 font-sans dark:bg-black">
       <div className="mx-auto max-w-5xl px-6 py-10">
+        {/* Logo */}
+        <div className="mb-6 flex items-center gap-3">
+          <img
+            src="/logo.png"
+            alt="Watchdog"
+            className="h-12 w-44  text-zinc-900 dark:text-zinc-50"
+          />
+        </div>
+
         {/* Back button */}
         <button
           onClick={() => router.back()}
@@ -100,24 +110,46 @@ export default function EventDetailPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <span
-              className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                event.finished
-                  ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
-                  : "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300"
-              }`}
-            >
-              {event.finished ? "Analyzed" : "Pending"}
-            </span>
-            <span
-              className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                event.askedAnalysis
-                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
-                  : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
-              }`}
-            >
-              {event.askedAnalysis ? "Analysis Requested" : "No Analysis"}
-            </span>
+            {!event.askedAnalysis && !event.finished ? (
+              <button
+                type="button"
+                disabled={analysing}
+                onClick={async () => {
+                  setAnalysing(true);
+                  try {
+                    const res = await fetch(`/api/events/analyse/${event.id}`);
+                    if (!res.ok)
+                      throw new Error(`Analysis failed (${res.status})`);
+                    setEvent((prev) =>
+                      prev ? { ...prev, askedAnalysis: true } : prev,
+                    );
+                  } catch (err) {
+                    setError(
+                      err instanceof Error
+                        ? err.message
+                        : "Analysis request failed",
+                    );
+                  } finally {
+                    setAnalysing(false);
+                  }
+                }}
+                className="rounded-full bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-500 disabled:opacity-50"
+              >
+                {analysing ? "Analysing…" : "Analyse Event"}
+              </button>
+            ) : (
+              <>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                    event.finished
+                      ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
+                      : "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+                  }`}
+                >
+                  {event.finished ? "Analyzed" : null}
+                </span>
+              </>
+            )}
           </div>
         </div>
 

@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const SERVER_URL = process.env.SERVER_URL;
+const SERVER_URL = process.env.SERVER_URL ;
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
 
-  const res = await fetch(`${SERVER_URL}/events/${encodeURIComponent(id)}`);
+  const res = await fetch(`${SERVER_URL}/events/analyse/${encodeURIComponent(id)}`);
 
   if (!res.ok) {
     const body = await res.text();
     return NextResponse.json(
-      { error: body || "Event not found" },
+      { error: body || "Analysis failed" },
       { status: res.status },
     );
   }

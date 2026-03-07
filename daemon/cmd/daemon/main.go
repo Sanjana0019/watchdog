@@ -16,6 +16,8 @@ import (
 	"github.com/gourish-mokashi/watchdog/daemon/watchers"
 )
 
+var backendURL = os.Getenv("WATCHDOG_BACKEND_URL")
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "init" {
 		RunInstallerUI()
@@ -34,13 +36,15 @@ func main() {
 	go watchers.StartFalcoHTTP("8081", eventQueue)
 
 	go func() {
-
-		targetURL := "https://webhook.site/29e9869b-01ca-461f-b3ae-fabe5755b0d8"
-
 		for alert := range eventQueue {
 			fmt.Printf("Shiping alerts from %s...\n", alert.SourceTool)
 
-			err := dispatcher.SendAlerts(alert, targetURL)
+			if backendURL == "" {
+				fmt.Println("WATCHDOG_BACKEND_URL not configured; skipping alert dispatch")
+				continue
+			}
+
+			err := dispatcher.SendAlerts(alert, backendURL)
 			if err != nil {
 				fmt.Printf("Error sending alert: %v\n", err)
 			} else {
@@ -81,10 +85,9 @@ func RunInstallerUI() {
 		&installers.FalcoTool{},
 		&installers.SuricataTool{},
 		&installers.WazuhTool{},
-		&installers.ZeekTool{},
 	}
 
-	p := tea.NewProgram(ui.InitialModel(tools))
+	p := tea.NewProgram(ui.InitialModel(tools, backendURL))
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Fatal error in UI: %v\n", err)
 		os.Exit(1)
