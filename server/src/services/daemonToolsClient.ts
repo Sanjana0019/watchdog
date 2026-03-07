@@ -83,8 +83,8 @@ export const restartToolWithApi = async (tool: toolname): Promise<"success" | "e
   return parseSuccessOrError(response);
 };
 
-export const direnumWithToolApi = async (level: number): Promise<DirenumToolResponse> => {
-  const response = await fetch(buildUrl("/tools/direnum", { level: level.toString() }), {
+export const direnumWithToolApi = async ( level: number, path: string): Promise<DirenumToolResponse> => {
+  const response = await fetch(buildUrl("/tools/direnum", { level: level.toString(), path }), {
     method: "GET",
   });
 

@@ -29,10 +29,11 @@ const createProjectSummariserAgent = (projectRoot: string) => {
     description:
       "Enumerate directory/file structure from daemon context to discover candidate files.",
     parameters: z.object({
+      path: z.string().describe("Root path to start enumeration, typically project root."),
       level: z.number().int().min(1).max(8).describe("Depth level for project enumeration."),
     }),
-    async execute({ level }) {
-      const response = await direnumWithToolApi(level);
+    async execute({ level, path }) {
+      const response = await direnumWithToolApi(level, path);
       return response.contents;
     },
   });
