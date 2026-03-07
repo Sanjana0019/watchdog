@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { logDebug } from "../utils/logger.js";
 
 type ReportMetadata = {
   eventId: string;
@@ -59,6 +60,7 @@ export const renderThreatReportPdf = async (
   analysisMarkdown: string,
   metadata: ReportMetadata,
 ): Promise<Buffer> => {
+  logDebug("pdf.report", "render start", { eventId: metadata.eventId });
   const doc = new PDFDocument({
     size: "A4",
     margins: { top: 56, bottom: 56, left: 56, right: 56 },
@@ -106,6 +108,10 @@ export const renderThreatReportPdf = async (
   renderMarkdown(doc, analysisMarkdown);
   doc.end();
 
-  return pdfBuffer;
+  const rendered = await pdfBuffer;
+  logDebug("pdf.report", "render completed", {
+    eventId: metadata.eventId,
+    bytes: rendered.length,
+  });
+  return rendered;
 };
-

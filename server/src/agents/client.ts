@@ -6,6 +6,6 @@ const ollamaClient = createOllama({
     apiKey: 'ollama'
 });
 
-const model = aisdk(ollamaClient("kimi-k2.5:cloud"));
+const model = aisdk(ollamaClient("glm-5:cloud"));
 
 export default model;

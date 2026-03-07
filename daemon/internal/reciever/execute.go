@@ -2,6 +2,7 @@ package reciever
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -12,23 +13,51 @@ import (
 )
 
 type WriteRequest struct {
-	Contents string `json:"content"`
+	Contents string `json:"contents"`
+	Path     string `json:"path"`
 }
 
 type EditRequest struct {
-	OldContents string `json:"oldContent"`
-	NewContents string `json:"newContent"`
+	OldContents string `json:"oldContents"`
+	NewContents string `json:"newContents"`
+	Path        string `json:"path"`
+}
+
+func resolvePath(input string) (string, error) {
+	if strings.TrimSpace(input) == "" {
+		return "", errors.New("empty path")
+	}
+
+	raw := strings.TrimSpace(input)
+	if raw == "~" || strings.HasPrefix(raw, "~/") {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve home directory: %w", err)
+		}
+		if raw == "~" {
+			raw = homeDir
+		} else {
+			raw = filepath.Join(homeDir, strings.TrimPrefix(raw, "~/"))
+		}
+	}
+
+	cleaned := filepath.Clean(raw)
+	abs, err := filepath.Abs(cleaned)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve absolute path: %w", err)
+	}
+	return abs, nil
 }
 
 func HandleToolsRead(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Query().Get("path")
+	path, err := resolvePath(r.URL.Query().Get("path"))
 
-	if path == "" {
+	if err != nil {
 		http.Error(w, "Missing 'path' query parameter", http.StatusBadRequest)
 		return
 	}
 
-	fmt.Printf("Agent Readign File ....")
+	fmt.Printf("Agent reading file: %s\n", path)
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -44,21 +73,32 @@ func HandleToolsRead(w http.ResponseWriter, r *http.Request) {
 }
 
 func HandleToolsWrite(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Query().Get("path")
-	if path == "" {
-		http.Error(w, "Missing 'path' query parameter", http.StatusBadRequest)
-		return
-	}
-
 	var req WriteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
 		return
 	}
 
+	rawPath := r.URL.Query().Get("path")
+	if strings.TrimSpace(rawPath) == "" {
+		rawPath = req.Path
+	}
+	path, err := resolvePath(rawPath)
+	if err != nil {
+		http.Error(w, "Missing 'path' query parameter", http.StatusBadRequest)
+		return
+	}
+
+	contents := req.Contents
+
 	fmt.Printf("Agent writing to file: %s\n", path)
 
-	if err := os.WriteFile(path, []byte(req.Contents), 0644); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		http.Error(w, fmt.Sprintf("Error creating directory: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if err := os.WriteFile(path, []byte(contents), 0644); err != nil {
 		http.Error(w, fmt.Sprintf("Error writing file: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -68,15 +108,26 @@ func HandleToolsWrite(w http.ResponseWriter, r *http.Request) {
 }
 
 func HandleToolsEdit(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Query().Get("path")
-	if path == "" {
+	var req EditRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	rawPath := r.URL.Query().Get("path")
+	if strings.TrimSpace(rawPath) == "" {
+		rawPath = req.Path
+	}
+	path, err := resolvePath(rawPath)
+	if err != nil {
 		http.Error(w, "Missing 'path' query parameter", http.StatusBadRequest)
 		return
 	}
 
-	var req EditRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
+	oldContent := req.OldContents
+	newContent := req.NewContents
+	if oldContent == "" {
+		http.Error(w, "Missing old content in request body", http.StatusBadRequest)
 		return
 	}
 
@@ -91,12 +142,12 @@ func HandleToolsEdit(w http.ResponseWriter, r *http.Request) {
 
 	// Perform the replace
 	contentStr := string(data)
-	if !strings.Contains(contentStr, req.OldContents) {
+	if !strings.Contains(contentStr, oldContent) {
 		http.Error(w, "oldContents not found in file", http.StatusBadRequest)
 		return
 	}
 
-	newContentStr := strings.Replace(contentStr, req.OldContents, req.NewContents, 1)
+	newContentStr := strings.Replace(contentStr, oldContent, newContent, 1)
 
 	// Write it back
 	if err := os.WriteFile(path, []byte(newContentStr), 0644); err != nil {
@@ -133,6 +184,11 @@ func HandleDirEnum(w http.ResponseWriter, r *http.Request) {
 	if targetPath == "" {
 		targetPath = "." // Default to current directory if not provided
 	}
+	resolvedPath, err := resolvePath(targetPath)
+	if err != nil {
+		http.Error(w, "Invalid 'path' query parameter", http.StatusBadRequest)
+		return
+	}
 
 	levelStr := r.URL.Query().Get("level")
 	maxDepth, err := strconv.Atoi(levelStr)
@@ -141,16 +197,16 @@ func HandleDirEnum(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Directory listing for: %s (Max Depth: %d)\n", targetPath, maxDepth))
+	sb.WriteString(fmt.Sprintf("Directory listing for: %s (Max Depth: %d)\n", resolvedPath, maxDepth))
 
 	// Walk the directory tree
-	filepath.Walk(targetPath, func(path string, info os.FileInfo, err error) error {
+	filepath.Walk(resolvedPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip errors like permission denied
 		}
 
 		// Calculate current depth
-		relPath, _ := filepath.Rel(targetPath, path)
+		relPath, _ := filepath.Rel(resolvedPath, path)
 		depth := strings.Count(relPath, string(os.PathSeparator))
 		if relPath == "." {
 			depth = 0

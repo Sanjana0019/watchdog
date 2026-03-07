@@ -10,6 +10,8 @@ import {
   writeWithToolApi,
 } from "../services/daemonToolsClient.js";
 import type { toolname } from "../../generated/prisma/enums.js";
+import { PROJECT_SUMMARY_REMOTE_PATH } from "./project-summariser.js";
+import { logDebug, logInfo } from "../utils/logger.js";
 
 const writeToFile = tool({
   name: "writeToFile",
@@ -74,6 +76,27 @@ const loadSkillContext = async (selectedTool: toolname): Promise<string> => {
   return `--- SKILL OVERVIEW ---\n${contents[0]}\n\n--- WATCHDOG CONFIG ---\n${contents[1]}\n\n--- TOOL GUIDE (${selectedTool}) ---\n${contents[2]}`;
 };
 
+const loadProjectSummaryContext = async (projectSummary?: string): Promise<string> => {
+  if (typeof projectSummary === "string" && projectSummary.trim().length > 0) {
+    logDebug("agent.rule-writer", "using inline project summary");
+    return projectSummary.trim();
+  }
+
+  try {
+    const storedSummary = await readWithToolApi(PROJECT_SUMMARY_REMOTE_PATH);
+    if (storedSummary.contents.trim().length > 0) {
+      logDebug("agent.rule-writer", "using stored project summary", {
+        path: PROJECT_SUMMARY_REMOTE_PATH,
+      });
+      return storedSummary.contents.trim();
+    }
+  } catch {
+    // Fall through to conservative fallback behavior.
+  }
+
+  return "Project summary unavailable. Use conservative default detections. Do not add broad suppressions without explicit environment evidence.";
+};
+
 const createRuleWriterAgent = (skillContext: string) =>
   new Agent({
     name: "Rule Writer Agent",
@@ -81,7 +104,7 @@ const createRuleWriterAgent = (skillContext: string) =>
 You are a senior detection engineer focused on reducing noisy alerts while preserving high-signal detections.
 
 Follow this workflow exactly:
-1) Read the provided project summary and extract workload profile, known noisy behaviors, and critical assets.
+1) Read the provided project summary if available and extract workload profile, known noisy behaviors, and critical assets.
 2) Use the skill context to follow tool-specific syntax, placement, validation, and tuning guidance.
 3) Generate a production-ready rules file for the selected tool.
 4) Add rationale comments near major rule blocks so operators understand why each rule exists and how it suppresses noise.
@@ -92,6 +115,7 @@ Hard requirements:
 - Keep rules conservative: minimize false positives.
 - Avoid generic catch-all detections without context constraints.
 - Keep syntax valid for the specific tool.
+- If project summary is missing, avoid suppression-heavy tuning and keep rules narrowly scoped.
 - If uncertain, read current file first with readFromFile and preserve local context.
 - Return a short summary of what was written and why.
 
@@ -104,17 +128,20 @@ ${skillContext}
 
 export async function runRuleWriterAgent(
   selectedTool: toolname,
-  projectSummary: string,
+  projectSummary?: string,
 ): Promise<string> {
+  logInfo("agent.rule-writer", "start", { tool: selectedTool });
   const session = new MemorySession();
   const skillContext = await loadSkillContext(selectedTool);
+  const resolvedProjectSummary = await loadProjectSummaryContext(projectSummary);
   const agent = createRuleWriterAgent(skillContext);
 
   const input = `Task: Create custom detection rules for "${selectedTool}".
 
 Project Summary (authoritative context from backend):
-${projectSummary}`;
+${resolvedProjectSummary}`;
 
   const result = await run(agent, input, { session });
+  logInfo("agent.rule-writer", "completed", { tool: selectedTool });
   return String(result.finalOutput ?? "success");
 }

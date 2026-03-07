@@ -7,6 +7,7 @@ import {
   readWithToolApi,
   writeWithToolApi,
 } from "../services/daemonToolsClient.js";
+import { logDebug, logInfo } from "../utils/logger.js";
 
 const normalizePath = (value: string): string => path.posix.resolve(value.replaceAll("\\", "/"));
 
@@ -29,10 +30,11 @@ const createProjectSummariserAgent = (projectRoot: string) => {
     description:
       "Enumerate directory/file structure from daemon context to discover candidate files.",
     parameters: z.object({
+      path: z.string().describe("Root path to start enumeration, typically project root."),
       level: z.number().int().min(1).max(8).describe("Depth level for project enumeration."),
     }),
-    async execute({ level }) {
-      const response = await direnumWithToolApi(level);
+    async execute({ level, path }) {
+      const response = await direnumWithToolApi(level, path);
       return response.contents;
     },
   });
@@ -96,6 +98,7 @@ Strict rules:
 };
 
 export async function runProjectSummariserAgent(projectRoot: string): Promise<string> {
+  logInfo("agent.project-summariser", "start", { projectRoot });
   const session = new MemorySession();
   const agent = createProjectSummariserAgent(projectRoot);
 
@@ -115,5 +118,9 @@ Build a summary optimized for high-signal, low-noise detection rule writing.`;
     throw new Error(`Failed to write summary to daemon path: ${PROJECT_SUMMARY_REMOTE_PATH}`);
   }
 
+  logDebug("agent.project-summariser", "summary written", {
+    path: PROJECT_SUMMARY_REMOTE_PATH,
+  });
+  logInfo("agent.project-summariser", "completed", { projectRoot });
   return finalSummary;
 }

@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import eventRouter from "./routes/eventRoute.js";
 import generateRouter from "./routes/generateRoute.js";
+import { logInfo } from "./utils/logger.js";
 
 const app = express();
 
@@ -15,5 +16,5 @@ app.get("/", (req, res) => {
 
 const PORT = process.env.PORT || 6000;
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  logInfo("server", "started", { port: Number(PORT) });
 });

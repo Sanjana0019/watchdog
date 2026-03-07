@@ -7,7 +7,6 @@ Write Falco custom rules that detect suspicious runtime behavior without floodin
 ## Where To Write Rules
 
 - Primary custom file: `/etc/falco/rules.d/watchdog-rules.yaml`
-- Local override file: `/etc/falco/falco_rules.local.yaml`
 - overwriting config to validate includes/load order: `/etc/falco/config.d/watchdog.yaml`
 
 Why this placement:

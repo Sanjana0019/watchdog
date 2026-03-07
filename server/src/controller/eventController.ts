@@ -3,6 +3,7 @@ import { prisma } from "../exports/prisma.js";
 import { toolname } from "../../generated/prisma/enums.js";
 import { enqueueThreatAnalysis } from "../services/threatAnalysisQueue.js";
 import { getSignedThreatReportUrl } from "../services/awsReportStorage.js";
+import { logDebug, logError } from "../utils/logger.js";
 
 const isValidToolName = (value: unknown): value is toolname =>
   typeof value === "string" &&
@@ -194,9 +195,14 @@ export const analyseEvent = async (req: Request, res: Response) => {
     });
 
     const queued = enqueueThreatAnalysis(uuid);
+    logDebug("event.analyse", "analysis requested", { eventId: uuid, queued });
 
     return res.status(200).json({ success: true, queued });
   } catch (error) {
+    logError("event.analyse", "failed to enqueue", {
+      eventId: req.params.uuid,
+      error: String(error),
+    });
     return res.status(500).json({ error: "Failed to start analysis", details: String(error) });
   }
 };

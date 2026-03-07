@@ -6,6 +6,7 @@ import {
 import { readWithToolApi } from "./daemonToolsClient.js";
 import { renderThreatReportPdf } from "./pdfReportRenderer.js";
 import { uploadThreatReportPdf } from "./awsReportStorage.js";
+import { logDebug, logError, logInfo } from "../utils/logger.js";
 
 const queuedEventIds = new Set<string>();
 const activeEventIds = new Set<string>();
@@ -41,6 +42,7 @@ const readProjectSummarySafe = async (): Promise<string> => {
 };
 
 const processEventAnalysis = async (eventId: string): Promise<void> => {
+  logDebug("queue.threat-analysis", "job start", { eventId });
   const event = await prisma.event.findUnique({ where: { id: eventId } });
   if (!event) return;
 
@@ -95,6 +97,10 @@ const processEventAnalysis = async (eventId: string): Promise<void> => {
         reportUrl: storedReportPath,
       },
     });
+    logInfo("queue.threat-analysis", "job completed", {
+      eventId: event.id,
+      reportUrl: storedReportPath,
+    });
   } catch (error) {
     const fallbackReport = buildFailureReport(event.id, String(error));
     let storedReportPath = "";
@@ -119,6 +125,11 @@ const processEventAnalysis = async (eventId: string): Promise<void> => {
         finished: true,
         reportUrl: storedReportPath,
       },
+    });
+    logError("queue.threat-analysis", "job failed", {
+      eventId: event.id,
+      error: String(error),
+      reportUrl: storedReportPath,
     });
   }
 };
@@ -150,11 +161,13 @@ const drainQueue = async (): Promise<void> => {
 
 export const enqueueThreatAnalysis = (eventId: string): boolean => {
   if (queuedEventIds.has(eventId) || activeEventIds.has(eventId)) {
+    logDebug("queue.threat-analysis", "skip duplicate enqueue", { eventId });
     return false;
   }
 
   queuedEventIds.add(eventId);
   queue.push(eventId);
+  logDebug("queue.threat-analysis", "enqueued", { eventId, pending: queue.length });
   void drainQueue();
   return true;
 };

@@ -1,5 +1,6 @@
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { logDebug, logError } from "../utils/logger.js";
 
 const awsRegion = process.env.AWS_REGION;
 const awsBucket = process.env.AWS_S3_BUCKET;
@@ -59,7 +60,9 @@ export const uploadThreatReportPdf = async (eventId: string, pdfBuffer: Buffer):
     }),
   );
 
-  return `s3://${bucket}/${objectKey}`;
+  const storedPath = `s3://${bucket}/${objectKey}`;
+  logDebug("storage.aws", "uploaded report", { eventId, storedPath });
+  return storedPath;
 };
 
 export const getSignedThreatReportUrl = async (storedPath: string): Promise<string> => {
@@ -75,8 +78,14 @@ export const getSignedThreatReportUrl = async (storedPath: string): Promise<stri
       ResponseContentDisposition: "inline",
     });
 
-    return await getSignedUrl(client, command, { expiresIn: signedUrlTtlSeconds });
+    const signedUrl = await getSignedUrl(client, command, { expiresIn: signedUrlTtlSeconds });
+    logDebug("storage.aws", "signed report url", {
+      ttlSeconds: signedUrlTtlSeconds,
+      storedPath,
+    });
+    return signedUrl;
   } catch {
+    logError("storage.aws", "failed to sign report url", { storedPath });
     return "";
   }
 };

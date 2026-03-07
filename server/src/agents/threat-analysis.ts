@@ -1,6 +1,7 @@
 import { Agent, MemorySession, run } from "@openai/agents";
 import model from "./client.js";
 import type { toolname } from "../../generated/prisma/enums.js";
+import { logInfo } from "../utils/logger.js";
 
 export const PROJECT_SUMMARY_PATH = "~/.watchdog/project-summary.md";
 
@@ -58,6 +59,10 @@ Hard constraints:
   });
 
 export async function runThreatAnalysisAgent(input: ThreatAnalysisInput): Promise<string> {
+  logInfo("agent.threat-analysis", "start", {
+    eventId: input.eventId,
+    tool: input.sourceTool,
+  });
   const session = new MemorySession();
   const agent = createThreatAnalysisAgent();
 
@@ -90,5 +95,6 @@ ${JSON.stringify(
 )}`;
 
   const result = await run(agent, prompt, { session });
+  logInfo("agent.threat-analysis", "completed", { eventId: input.eventId });
   return String(result.finalOutput ?? "").trim();
 }
