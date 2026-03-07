@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -11,6 +12,10 @@ import (
 	"strconv"
 	"strings"
 )
+
+func agentLog(format string, args ...any) {
+	log.Printf("[agent-api] "+format, args...)
+}
 
 type WriteRequest struct {
 	Contents string `json:"contents"`
@@ -53,17 +58,21 @@ func HandleToolsRead(w http.ResponseWriter, r *http.Request) {
 	path, err := resolvePath(r.URL.Query().Get("path"))
 
 	if err != nil {
+		agentLog("read rejected: invalid path: %v", err)
 		http.Error(w, "Missing 'path' query parameter", http.StatusBadRequest)
 		return
 	}
 
-	fmt.Printf("Agent reading file: %s\n", path)
+	agentLog("reading file: %s", path)
 
 	data, err := os.ReadFile(path)
 	if err != nil {
+		agentLog("read failed for %s: %v", path, err)
 		http.Error(w, fmt.Sprintf("Error reading file: %v", err), http.StatusInternalServerError)
 		return
 	}
+
+	agentLog("read complete: %s (%d bytes)", path, len(data))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
@@ -75,6 +84,7 @@ func HandleToolsRead(w http.ResponseWriter, r *http.Request) {
 func HandleToolsWrite(w http.ResponseWriter, r *http.Request) {
 	var req WriteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		agentLog("write rejected: invalid JSON body: %v", err)
 		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
 		return
 	}
@@ -85,23 +95,28 @@ func HandleToolsWrite(w http.ResponseWriter, r *http.Request) {
 	}
 	path, err := resolvePath(rawPath)
 	if err != nil {
+		agentLog("write rejected: invalid path: %v", err)
 		http.Error(w, "Missing 'path' query parameter", http.StatusBadRequest)
 		return
 	}
 
 	contents := req.Contents
 
-	fmt.Printf("Agent writing to file: %s\n", path)
+	agentLog("writing file: %s (%d bytes)", path, len(contents))
 
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		agentLog("write failed creating parent dir for %s: %v", path, err)
 		http.Error(w, fmt.Sprintf("Error creating directory: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	if err := os.WriteFile(path, []byte(contents), 0644); err != nil {
+		agentLog("write failed for %s: %v", path, err)
 		http.Error(w, fmt.Sprintf("Error writing file: %v", err), http.StatusInternalServerError)
 		return
 	}
+
+	agentLog("write complete: %s", path)
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("success"))
@@ -110,6 +125,7 @@ func HandleToolsWrite(w http.ResponseWriter, r *http.Request) {
 func HandleToolsEdit(w http.ResponseWriter, r *http.Request) {
 	var req EditRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		agentLog("edit rejected: invalid JSON body: %v", err)
 		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
 		return
 	}
@@ -120,6 +136,7 @@ func HandleToolsEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	path, err := resolvePath(rawPath)
 	if err != nil {
+		agentLog("edit rejected: invalid path: %v", err)
 		http.Error(w, "Missing 'path' query parameter", http.StatusBadRequest)
 		return
 	}
@@ -127,15 +144,17 @@ func HandleToolsEdit(w http.ResponseWriter, r *http.Request) {
 	oldContent := req.OldContents
 	newContent := req.NewContents
 	if oldContent == "" {
+		agentLog("edit rejected for %s: missing old content", path)
 		http.Error(w, "Missing old content in request body", http.StatusBadRequest)
 		return
 	}
 
-	fmt.Printf("AI Agent editing file: %s\n", path)
+	agentLog("editing file: %s", path)
 
 	// Read existing file
 	data, err := os.ReadFile(path)
 	if err != nil {
+		agentLog("edit failed reading %s: %v", path, err)
 		http.Error(w, fmt.Sprintf("Error reading file for edit: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -143,6 +162,7 @@ func HandleToolsEdit(w http.ResponseWriter, r *http.Request) {
 	// Perform the replace
 	contentStr := string(data)
 	if !strings.Contains(contentStr, oldContent) {
+		agentLog("edit rejected for %s: oldContents not found", path)
 		http.Error(w, "oldContents not found in file", http.StatusBadRequest)
 		return
 	}
@@ -151,9 +171,12 @@ func HandleToolsEdit(w http.ResponseWriter, r *http.Request) {
 
 	// Write it back
 	if err := os.WriteFile(path, []byte(newContentStr), 0644); err != nil {
+		agentLog("edit failed writing %s: %v", path, err)
 		http.Error(w, fmt.Sprintf("Error saving edited file: %v", err), http.StatusInternalServerError)
 		return
 	}
+
+	agentLog("edit complete: %s", path)
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("success"))
@@ -162,18 +185,22 @@ func HandleToolsEdit(w http.ResponseWriter, r *http.Request) {
 func HandleToolsRestart(w http.ResponseWriter, r *http.Request) {
 	toolname := r.URL.Query().Get("toolname")
 	if toolname == "" {
+		agentLog("restart rejected: missing toolname")
 		http.Error(w, "Missing 'toolname' query parameter", http.StatusBadRequest)
 		return
 	}
 
-	fmt.Printf("Agent restarting tool: %s\n", toolname)
+	agentLog("restarting tool: %s", toolname)
 
 	// Execute systemctl restart
 	cmd := exec.Command("systemctl", "restart", toolname)
 	if err := cmd.Run(); err != nil {
+		agentLog("restart failed for %s: %v", toolname, err)
 		http.Error(w, fmt.Sprintf("Failed to restart %s: %v", toolname, err), http.StatusInternalServerError)
 		return
 	}
+
+	agentLog("restart complete: %s", toolname)
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("success"))
@@ -186,6 +213,7 @@ func HandleDirEnum(w http.ResponseWriter, r *http.Request) {
 	}
 	resolvedPath, err := resolvePath(targetPath)
 	if err != nil {
+		agentLog("direnum rejected: invalid path %q: %v", targetPath, err)
 		http.Error(w, "Invalid 'path' query parameter", http.StatusBadRequest)
 		return
 	}
@@ -195,6 +223,8 @@ func HandleDirEnum(w http.ResponseWriter, r *http.Request) {
 	if err != nil || maxDepth < 1 {
 		maxDepth = 1 // Default to level 1 if invalid
 	}
+
+	agentLog("enumerating directory: %s (max depth %d)", resolvedPath, maxDepth)
 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Directory listing for: %s (Max Depth: %d)\n", resolvedPath, maxDepth))
@@ -234,4 +264,5 @@ func HandleDirEnum(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{
 		"contents": sb.String(),
 	})
+	agentLog("directory enumeration complete: %s", resolvedPath)
 }
