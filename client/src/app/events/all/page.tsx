@@ -18,6 +18,16 @@ interface Event {
 export default function EventsAllPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  const [start, setStart] = useState(searchParams.get("start") ?? "");
+  const [end, setEnd] = useState(searchParams.get("end") ?? "");
+  const [rows, setRows] = useState(
+    Number(searchParams.get("rows")) || 10,
+  );
+  const [sortOrder, setSortOrder] = useState<"lf" | "of">(
+    searchParams.has("of") ? "of" : "lf",
+  );
+
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +50,22 @@ export default function EventsAllPage() {
     doFetch();
   }, [doFetch]);
 
-  function severityColor(severity: number) {
+  function applyFilters() {
+    const params = new URLSearchParams();
+    if (start) params.set("start", start);
+    if (end) params.set("end", end);
+    params.set("rows", String(rows));
+    params.set(sortOrder, "true");
+    router.push(`/events/all?${params.toString()}`);
+  }
+
+  function priorityLabel(severity: number) {
+    if (severity >= 0.8) return "Critical";
+    if (severity >= 0.5) return "Medium";
+    return "Low";
+  }
+
+  function priorityColor(severity: number) {
     if (severity >= 0.8) return "text-red-500";
     if (severity >= 0.5) return "text-yellow-500";
     return "text-green-500";
@@ -58,7 +83,7 @@ export default function EventsAllPage() {
     <div className="min-h-screen bg-zinc-50 font-sans dark:bg-black">
       <div className="mx-auto max-w-7xl px-6 py-10">
         <button
-          onClick={() => router.back()}
+          onClick={() => router.push("/")}
           className="mb-6 flex items-center gap-1 text-sm text-zinc-500 transition-colors hover:text-zinc-900 dark:hover:text-zinc-200"
         >
           <span>←</span> Back to filters
@@ -67,6 +92,67 @@ export default function EventsAllPage() {
         <h1 className="mb-8 text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
           Watchdog — Events
         </h1>
+
+        {/* Filters */}
+        <div className="mb-6 flex flex-wrap items-end gap-4 rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+              Start Date
+            </label>
+            <input
+              type="datetime-local"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              className="rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+              End Date
+            </label>
+            <input
+              type="datetime-local"
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+              className="rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+              Rows
+            </label>
+            <input
+              type="number"
+              min={1}
+              value={rows}
+              onChange={(e) => setRows(Number(e.target.value))}
+              className="w-24 rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+              Sort Order
+            </label>
+            <select
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value as "lf" | "of")}
+              className="rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            >
+              <option value="lf">Latest First</option>
+              <option value="of">Oldest First</option>
+            </select>
+          </div>
+
+          <button
+            onClick={applyFilters}
+            className="rounded-md bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            Fetch Events
+          </button>
+        </div>
 
         {error && (
           <div className="mb-4 rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-400">
@@ -81,12 +167,12 @@ export default function EventsAllPage() {
                 <tr>
                   <th className="px-4 py-3">Source Tool</th>
                   <th className="px-4 py-3">Timestamp</th>
-                  <th className="px-4 py-3">Severity</th>
+                  <th className="px-4 py-3">Priority</th>
                   <th className="px-4 py-3">Description</th>
-                  <th className="px-4 py-3">Report</th>
-                  <th className="px-4 py-3">Count</th>
+                  <th className="px-4 py-3">Occurrence</th>
                   <th className="px-4 py-3">Analysis</th>
                   <th className="px-4 py-3">Finished</th>
+                  <th className="px-4 py-3">Report</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-200 bg-white dark:divide-zinc-800 dark:bg-zinc-950">
@@ -103,29 +189,14 @@ export default function EventsAllPage() {
                       {new Date(event.timestamp).toLocaleString()}
                     </td>
                     <td
-                      className={`whitespace-nowrap px-4 py-3 font-semibold ${severityColor(event.severity)}`}
+                      className={`whitespace-nowrap px-4 py-3 font-semibold ${priorityColor(event.severity)}`}
                     >
-                      {event.severity.toFixed(2)}
+                      {priorityLabel(event.severity)}
                     </td>
                     <td className="max-w-xs truncate px-4 py-3 text-zinc-700 dark:text-zinc-300">
                       {event.description}
                     </td>
-                    <td className="px-4 py-3">
-                      {event.reportUrl ? (
-                        <a
-                          href={event.reportUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="text-blue-600 underline hover:text-blue-500 dark:text-blue-400"
-                        >
-                          View
-                        </a>
-                      ) : (
-                        <span className="text-zinc-400">—</span>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-zinc-600 dark:text-zinc-400">
+                    <td className="whitespace-nowrap px-4 py-3 text-center text-zinc-600 dark:text-zinc-400">
                       {event.count}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
@@ -149,6 +220,21 @@ export default function EventsAllPage() {
                       >
                         {event.finished ? "Analyzed" : "Pending"}
                       </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {event.reportUrl ? (
+                        <a
+                          href={event.reportUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-blue-600 underline hover:text-blue-500 dark:text-blue-400"
+                        >
+                          View
+                        </a>
+                      ) : (
+                        <span className="text-zinc-400">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}
