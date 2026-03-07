@@ -31,8 +31,8 @@ interface HeroProps {
 }
 
 export default function Hero({
-  title = "Give your big idea the design it deserves",
-  description = "Professionally designed blocks and templates built with React, Shadcn/ui and Tailwind that will help your product stand out.",
+  title = "Eyes on Every Threat, Guarding Every Step",
+  description = "Watchdog monitors, detects, and neutralizes cyber threats in real-time, giving you peace of mind and total control over your digital space.",
   mockup = (
     <Screenshot
       srcLight="/logo.png"
