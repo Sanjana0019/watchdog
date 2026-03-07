@@ -82,6 +82,15 @@ export default function EventDetailPage() {
   return (
     <div className="min-h-screen bg-zinc-50 font-sans dark:bg-black">
       <div className="mx-auto max-w-5xl px-6 py-10">
+        {/* Logo */}
+        <div className="mb-6 flex items-center gap-3">
+          <img
+            src="/logo.png"
+            alt="Watchdog"
+            className="h-12 w-44  text-zinc-900 dark:text-zinc-50"
+          />
+        </div>
+
         {/* Back button */}
         <button
           onClick={() => router.back()}

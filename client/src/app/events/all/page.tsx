@@ -86,9 +86,16 @@ export default function EventsAllPage() {
           <span>←</span> Back to filters
         </button>
 
-        <h1 className="mb-8 text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-          Watchdog — Events
-        </h1>
+        <div className="mb-8 flex items-center gap-3">
+          <img
+            src="/logo.png"
+            alt="Watchdog"
+            className="h-12 w-44 text-zinc-900 dark:text-zinc-50"
+          />
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+          Events
+          </h1>
+        </div>
 
         {/* Filters */}
         <div className="mb-6 flex flex-wrap items-end gap-4 rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
